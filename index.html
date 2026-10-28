@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlowGate · 可回放的 AI 管道编排台</title>
+<meta name="description" content="FlowGate 是一个事件溯源的 AI 管道编排台：可视化编排、后台运行、SSE 事件流、按 seq 回放、断点恢复与从任意成功步骤分叉。">
+<link rel="canonical" href="https://nick456-jpg.github.io/flowgate/">
+<meta property="og:url" content="https://nick456-jpg.github.io/flowgate/">
+<meta property="og:title" content="FlowGate · Replayable AI Pipeline Studio">
+<meta property="og:description" content="Compose a pipeline, run it, replay every event, resume from a failure, or fork from any successful step.">
+<meta property="og:image" content="https://nick456-jpg.github.io/flowgate/assets/poster.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://nick456-jpg.github.io/flowgate/assets/poster.png">
+<meta name="theme-color" content="#0b0d12">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%230b0d12' stroke='%23f59e0b' stroke-width='1.4'/%3E%3Cpath d='M8 24V9l8 7 8-7v15' fill='none' stroke='%23f59e0b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#0b0d12; --bg2:#0e1117; --panel:#12161d; --panel2:#161b23;
+    --line:#242b35; --line2:#303947;
+    --text:#e8ebf0; --muted:#9aa3b2; --dim:#6f7888;
+    --amber:#f59e0b; --teal:#14b8a6; --blue:#60a5fa; --pink:#f472b6; --lime:#a3e635; --emerald:#34d399;
+    --max:1200px; --mono:ui-monospace,"Cascadia Code","JetBrains Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:Inter,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;line-height:1.65;
+    background-image:
+      radial-gradient(1100px 640px at 10% -10%, rgba(245,158,11,.10), transparent 62%),
+      radial-gradient(900px 600px at 96% 4%, rgba(20,184,166,.07), transparent 62%),
+      linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px);
+    background-size:auto,auto,48px 48px,48px 48px;
+    background-attachment:fixed;
+  }
+  a{color:inherit;text-decoration:none}
+  img{max-width:100%;height:auto;display:block}
+  button{font-family:inherit}
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 28px}
+  .eyebrow{font-size:11.5px;letter-spacing:2.6px;color:var(--amber);text-transform:uppercase;font-weight:650}
+  .muted{color:var(--muted)}
+  .dim{color:var(--dim)}
+  .mono{font-family:var(--mono)}
+  .grad{background:linear-gradient(100deg,#fbbf24 0%,#f59e0b 46%,#2dd4bf 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+  ::selection{background:rgba(245,158,11,.26)}
+  :focus-visible{outline:2px solid var(--amber);outline-offset:3px;border-radius:6px}
+  .skip{position:absolute;left:-9999px;top:0;background:var(--amber);color:#15181f;padding:10px 16px;z-index:200;border-radius:0 0 8px 0;font-weight:650}
+  .skip:focus{left:0}
+
+  /* header */
+  header{position:sticky;top:0;z-index:50;background:rgba(11,13,18,.78);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+  .nav{height:64px;display:flex;align-items:center;gap:24px}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:700;letter-spacing:.1px}
+  .mark{width:34px;height:34px;border-radius:9px;background:linear-gradient(145deg,#1a1206,#0e1516);border:1px solid rgba(245,158,11,.55);display:grid;place-items:center;box-shadow:0 8px 24px rgba(245,158,11,.12)}
+  .brand small{display:block;font-size:9px;letter-spacing:1.8px;color:var(--dim);font-weight:600;margin-top:-2px}
+  .navlinks{display:flex;gap:21px;margin-left:12px;font-size:13.5px;color:var(--muted)}
+  .navlinks a:hover{color:var(--text)}
+  .nav-right{margin-left:auto;display:flex;align-items:center;gap:9px}
+  .icon-btn{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 12px;border-radius:8px;border:1px solid var(--line);color:var(--muted);font-size:12.5px;background:transparent;cursor:pointer}
+  .icon-btn:hover{color:var(--text);border-color:var(--line2)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;height:44px;padding:0 20px;border-radius:10px;font-size:14px;font-weight:650;border:1px solid transparent;cursor:pointer;transition:transform .18s,box-shadow .18s,background .18s;white-space:nowrap}
+  .btn:hover{transform:translateY(-1px)}
+  .btn-primary{background:linear-gradient(120deg,#fbbf24,#f59e0b);color:#15181f;box-shadow:0 10px 28px rgba(245,158,11,.22)}
+  .btn-primary:hover{box-shadow:0 14px 34px rgba(245,158,11,.3)}
+  .btn-ghost{border-color:var(--line2);color:var(--text);background:rgba(255,255,255,.025)}
+  .btn-ghost:hover{background:rgba(255,255,255,.055)}
+  .btn-sm{height:36px;padding:0 14px;font-size:12.5px;border-radius:8px}
+
+  /* hero */
+  .hero{padding:82px 0 54px}
+  .hero-grid{display:grid;grid-template-columns:1.02fr .98fr;gap:54px;align-items:center}
+  .hero h1{font-size:clamp(36px,4.5vw,60px);line-height:1.08;letter-spacing:-1.5px;margin:16px 0 20px;font-weight:720}
+  .hero p.lead{font-size:16px;color:var(--muted);max-width:600px;margin:0 0 24px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 28px}
+  .chip{font-size:11px;letter-spacing:.2px;color:#b9c3d0;border:1px solid var(--line);background:rgba(255,255,255,.02);padding:5px 10px;border-radius:999px;font-family:var(--mono)}
+  .cta{display:flex;flex-wrap:wrap;gap:11px;align-items:center}
+  .note{font-size:12px;color:var(--dim);margin-top:14px}
+  .note b{color:#c6cbd4;font-weight:600}
+  .hero-visual{position:relative}
+  .frame{background:linear-gradient(180deg,rgba(21,27,36,.96),rgba(12,16,22,.96));border:1px solid var(--line2);border-radius:16px;padding:10px;box-shadow:0 40px 90px rgba(0,0,0,.55),0 0 0 1px rgba(245,158,11,.04) inset}
+  .frame-bar{display:flex;align-items:center;gap:6px;padding:2px 4px 10px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#2a3340}
+  .dot:nth-child(1){background:#4a3a25}.dot:nth-child(2){background:#334333}.dot:nth-child(3){background:#2a3340}
+  .addr{margin-left:8px;font-size:10.5px;color:#6c7889;font-family:var(--mono);letter-spacing:.2px}
+  .frame img{border-radius:10px;border:1px solid rgba(255,255,255,.05)}
+  .frame-caption{display:flex;align-items:center;gap:9px;margin:14px 2px 0;font-size:12px;color:var(--muted)}
+  .frame-caption b{color:#d6dbe3;font-weight:600}
+  .frame-caption span:last-child{color:var(--dim);font-size:11px}
+  .pulse{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 4px rgba(245,158,11,.1);flex:0 0 auto}
+
+  /* stats */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:26px 0 0}
+  .stat{background:#0b0f15;padding:21px 23px}
+  .stat b{display:block;font-size:29px;letter-spacing:-1px;line-height:1.2;color:#eef2f7}
+  .stat span{font-size:11.5px;color:var(--dim);letter-spacing:.2px}
+
+  section{padding:80px 0;scroll-margin-top:78px}
+  .sec-head{max-width:740px;margin-bottom:34px}
+  .sec-head h2{font-size:clamp(28px,3.1vw,40px);letter-spacing:-.8px;line-height:1.18;margin:12px 0 12px;font-weight:700}
+  .sec-head p{color:var(--muted);margin:0;font-size:15px}
+
+  /* cards */
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}
+  .card{position:relative;border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.008));border-radius:14px;padding:25px 23px 22px;transition:border-color .2s,transform .2s,background .2s;overflow:hidden}
+  .card:hover{border-color:rgba(245,158,11,.3);transform:translateY(-3px);background:linear-gradient(180deg,rgba(245,158,11,.045),rgba(255,255,255,.008))}
+  .card .num{position:absolute;right:18px;top:16px;font-size:10.5px;color:#3c4655;font-family:var(--mono);letter-spacing:1px}
+  .ico{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.18);margin-bottom:15px}
+  .ico svg{width:20px;height:20px;stroke:var(--amber);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .card.teal .ico{background:rgba(20,184,166,.07);border-color:rgba(20,184,166,.2)}
+  .card.teal .ico svg{stroke:var(--teal)}
+  .card.blue .ico{background:rgba(96,165,250,.07);border-color:rgba(96,165,250,.2)}
+  .card.blue .ico svg{stroke:var(--blue)}
+  .card.pink .ico{background:rgba(244,114,182,.06);border-color:rgba(244,114,182,.18)}
+  .card.pink .ico svg{stroke:var(--pink)}
+  .card h3{font-size:16.5px;margin:0 0 8px;font-weight:650;letter-spacing:-.1px}
+  .card p{font-size:13px;color:var(--muted);margin:0}
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+  .tag{font-size:10px;font-family:var(--mono);color:#8d99aa;border:1px solid var(--line);border-radius:5px;padding:2px 7px;background:rgba(255,255,255,.018)}
+
+  /* architecture */
+  .arch-panel{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#070a0f;box-shadow:0 30px 80px rgba(0,0,0,.4)}
+  .arch-panel button{display:block;width:100%;border:0;background:none;padding:0;cursor:zoom-in;position:relative}
+  .arch-panel img{width:100%}
+  .zoomhint{position:absolute;right:14px;top:14px;font-size:10.5px;color:#c6ccd6;background:rgba(6,9,14,.72);border:1px solid var(--line2);padding:5px 10px;border-radius:999px;backdrop-filter:blur(6px)}
+  .arch-notes{display:grid;grid-template-columns:repeat(3,1fr);gap:17px;margin-top:21px}
+  .arch-notes div{font-size:12.5px;color:var(--muted);border-left:2px solid rgba(245,158,11,.35);padding-left:12px}
+  .arch-notes b{display:block;color:var(--text);font-size:13px;margin-bottom:3px;font-weight:600}
+
+  /* video */
+  .video-shell{border:1px solid var(--line);border-radius:16px;background:#04070b;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+  video{width:100%;aspect-ratio:16/9;display:block;background:#000}
+  .chapters{display:flex;flex-wrap:wrap;gap:8px;margin-top:15px}
+  .chap{font-size:11.5px;color:var(--muted);border:1px solid var(--line);background:rgba(255,255,255,.018);border-radius:999px;padding:7px 12px;cursor:pointer;transition:all .15s}
+  .chap:hover{color:var(--text);border-color:var(--line2)}
+  .chap.active{color:#15181f;background:var(--amber);border-color:var(--amber);font-weight:650}
+  .chap b{font-family:var(--mono);font-weight:600;margin-right:6px;opacity:.72}
+  .video-note{font-size:12px;color:var(--dim);margin-top:14px}
+  .video-note a{color:var(--amber)}
+
+  /* gallery */
+  .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}
+  figure{margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#0b0f15;transition:border-color .2s,transform .2s}
+  figure:hover{border-color:rgba(20,184,166,.3);transform:translateY(-2px)}
+  figure button{display:block;width:100%;border:0;padding:0;background:none;cursor:zoom-in}
+  figure img{width:100%;aspect-ratio:2508/1451;object-fit:cover;object-position:top}
+  figcaption{padding:10px 13px;font-size:11.5px;color:var(--muted);display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--line)}
+  figcaption b{color:var(--text);font-weight:600;font-size:12px}
+  figcaption span{color:var(--dim);font-size:10.5px}
+
+  /* footer */
+  footer{border-top:1px solid var(--line);padding:38px 0 52px;margin-top:18px}
+  .foot-grid{display:flex;justify-content:space-between;gap:30px;flex-wrap:wrap;align-items:flex-start}
+  .foot-grid p{margin:6px 0 0;font-size:11.5px;color:var(--dim);max-width:520px}
+  .foot-links{display:flex;gap:17px;font-size:12.5px;color:var(--muted)}
+  .foot-links a:hover{color:var(--text)}
+
+  /* lightbox */
+  .lb{position:fixed;inset:0;background:rgba(3,5,9,.95);display:none;align-items:center;justify-content:center;z-index:100;padding:30px}
+  .lb.open{display:flex}
+  .lb img{max-width:96vw;max-height:90vh;border-radius:10px;border:1px solid var(--line2);box-shadow:0 30px 90px rgba(0,0,0,.7)}
+  .lb-close{position:absolute;top:18px;right:22px;width:40px;height:40px;border-radius:50%;border:1px solid var(--line2);background:rgba(12,16,23,.85);color:#e3e8ef;font-size:20px;cursor:pointer}
+  .lb-close:hover{border-color:var(--amber);color:var(--amber)}
+
+  .reveal{opacity:0;transform:translateY(16px);transition:opacity .65s ease,transform .65s ease}
+  .reveal.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion: reduce){
+    .reveal{opacity:1;transform:none;transition:none}
+    html{scroll-behavior:auto}
+  }
+  @media (max-width:980px){
+    .hero-grid{grid-template-columns:1fr;gap:32px}
+    .hero{padding-top:54px}
+    .cards{grid-template-columns:repeat(2,1fr)}
+    .gallery{grid-template-columns:repeat(2,1fr)}
+    .arch-notes{grid-template-columns:1fr}
+    .navlinks{display:none}
+    .stats{grid-template-columns:repeat(2,1fr)}
+  }
+  @media (max-width:640px){
+    .wrap{padding:0 18px}
+    .cards,.gallery{grid-template-columns:1fr}
+    section{padding:60px 0}
+    .hero h1{letter-spacing:-.8px}
+    .chapters{gap:6px}
+    .nav{height:58px;gap:10px}
+    .brand{font-size:14px;gap:8px}
+    .brand small{display:none}
+    .mark{width:29px;height:29px;border-radius:8px}
+    .nav-right{gap:6px}
+    .icon-btn{height:32px;padding:0 9px;font-size:11.5px}
+    .btn-sm{height:33px;padding:0 11px;font-size:12px}
+    header .btn-primary{font-size:12px}
+  }
+</style>
+<noscript><style>.reveal{opacity:1;transform:none}</style></noscript>
+</head>
+<body>
+<a class="skip" href="#main">跳到主要内容</a>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="#top" aria-label="FlowGate">
+      <span class="mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M5 18V7l7 5.5L19 7v11" stroke="#f59e0b" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span>FlowGate<small>REPLAYABLE PIPELINES</small></span>
+    </a>
+    <nav class="navlinks" aria-label="主导航">
+      <a href="#overview" data-i18n="nav.overview">概览</a>
+      <a href="#architecture" data-i18n="nav.arch">架构</a>
+      <a href="#demo" data-i18n="nav.demo">演示</a>
+      <a href="#screens" data-i18n="nav.shots">界面</a>
+    </nav>
+    <div class="nav-right">
+      <button class="icon-btn" id="langBtn" type="button" aria-label="Switch language">EN</button>
+      <a class="icon-btn" href="https://github.com/nick456-jpg/flowgate" target="_blank" rel="noopener" aria-label="GitHub">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span>GitHub</span>
+      </a>
+      <a class="btn btn-primary btn-sm" href="#demo" data-i18n="nav.watch">观看演示</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="top">
+    <div class="wrap hero-grid">
+      <div>
+        <div class="eyebrow" data-i18n="hero.eyebrow">EVENT-SOURCED · AI PIPELINE STUDIO</div>
+        <h1 data-i18n-html="hero.title">把一次 AI 运行，<br><span class="grad">变成可回放的事件流</span></h1>
+        <p class="lead" data-i18n="hero.lead">FlowGate 把编排、执行与审计拆成三层：可编辑的 Pipeline、不可变的 Revision、append-only 的 JournalEvent。运行可以暂停、恢复，也可以从任意成功步骤分叉。</p>
+        <div class="chips" aria-label="Tech stack">
+          <span class="chip">React 18</span><span class="chip">NestJS 10</span><span class="chip">PostgreSQL 16</span><span class="chip">Redis 7</span><span class="chip">BullMQ</span>
+        </div>
+        <div class="cta">
+          <a class="btn btn-primary" href="#demo">
+            <span data-i18n="hero.cta.video">观看 2 分钟演示</span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/nick456-jpg/flowgate" target="_blank" rel="noopener" data-i18n="hero.cta.gh">GitHub 源码</a>
+        </div>
+        <p class="note"><b data-i18n="hero.note.b">v1 · 核心编排闭环</b> <span data-i18n="hero.note.s">LLM_MOCK 可离线演示 · 无需模型 Key</span></p>
+      </div>
+      <div class="hero-visual">
+        <div class="frame">
+          <div class="frame-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr">flowgate / pipelines / lead-qualifier</span></div>
+          <img src="assets/editor.png" width="2508" height="1451" alt="FlowGate 编辑器：线索分级管道的 6 个步骤，选中提示词节点并打开右侧配置面板">
+        </div>
+        <p class="frame-caption">
+          <span class="pulse" aria-hidden="true"></span>
+          <b data-i18n="hero.caption.b">线索分级管道 · 6 个步骤</b>
+          <span data-i18n="hero.caption.s">已发布 v2 · React Flow 画布</span>
+        </p>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="stats reveal">
+        <div class="stat"><b>6</b><span data-i18n="stats.steps">步骤类型</span></div>
+        <div class="stat"><b>12</b><span data-i18n="stats.tables">数据表</span></div>
+        <div class="stat"><b>15</b><span data-i18n="stats.events">事件类型</span></div>
+        <div class="stat"><b>18</b><span data-i18n="stats.tests">单元测试</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="overview">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow" data-i18n="caps.eyebrow">01 · CAPABILITIES 平台能力</div>
+        <h2 data-i18n="caps.title">从画布到事件流，一条系统闭环</h2>
+        <p data-i18n="caps.lead">FlowGate v1 不追求功能堆叠，而是把「编排 → 执行 → 审计 → 回放」做成一条可验证的链路。</p>
+      </div>
+      <div class="cards">
+        <article class="card reveal">
+          <span class="num">01</span>
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="12" r="2"/><circle cx="15" cy="18" r="2"/></svg></div>
+          <h3 data-i18n="cap1.t">事件溯源运行</h3>
+          <p data-i18n="cap1.d">每一次运行都写入 append-only 的 Run / Step / JournalEvent。seq 在事务内分配，run_events 是真相，run_steps 只是可重建的投影。</p>
+          <div class="tags"><span class="tag">Postgres journal</span><span class="tag">seq</span><span class="tag">foldRun</span></div>
+        </article>
+        <article class="card teal reveal">
+          <span class="num">02</span>
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M4 12h4l2-5 4 10 2-5h4"/><path d="M4 20h16"/></svg></div>
+          <h3 data-i18n="cap2.t">回放 · 恢复 · 分叉</h3>
+          <p data-i18n="cap2.d">拖到任意 seq 重建当时的节点状态；失败或取消后从断点续跑；从任意成功步骤 fork 一条新运行，复用上游输出，不复制历史。</p>
+          <div class="tags"><span class="tag">replay</span><span class="tag">resume</span><span class="tag">fork lineage</span></div>
+        </article>
+        <article class="card blue reveal">
+          <span class="num">03</span>
+          <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="6" rx="1.5"/><rect x="14" y="14" width="7" height="6" rx="1.5"/><path d="M10 7h4a3 3 0 0 1 3 3v4"/><path d="M6.5 10v4a3 3 0 0 0 3 3H14"/></svg></div>
+          <h3 data-i18n="cap3.t">可视化编排</h3>
+          <p data-i18n="cap3.d">React Flow 12 画布，6 种带类型步骤：起点、提示词、变换、分支、请求、响应。Descriptor 驱动的配置表单与 If-Match 草稿乐观锁。</p>
+          <div class="tags"><span class="tag">React Flow 12</span><span class="tag">6 steps</span><span class="tag">If-Match</span></div>
+        </article>
+        <article class="card teal reveal">
+          <span class="num">04</span>
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M4 18V6M4 18h16"/><path d="M7 14l3-3 3 2 4-5"/><circle cx="7" cy="14" r="1.2"/><circle cx="10" cy="11" r="1.2"/><circle cx="13" cy="13" r="1.2"/><circle cx="17" cy="8" r="1.2"/></svg></div>
+          <h3 data-i18n="cap4.t">SSE 实时事件流</h3>
+          <p data-i18n="cap4.d">运行事件从 Postgres 读取，经 SSE 按 seq 推送到浏览器；支持 cursor / Last-Event-ID 断线续传、15 秒 keepalive，终态关闭。</p>
+          <div class="tags"><span class="tag">SSE</span><span class="tag">cursor</span><span class="tag">Last-Event-ID</span></div>
+        </article>
+        <article class="card reveal">
+          <span class="num">05</span>
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="4"/><path d="M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg></div>
+          <h3 data-i18n="cap5.t">可靠执行</h3>
+          <p data-i18n="cap5.d">BullMQ 调度 + Redis 租约/心跳；节点级重试、取消、15 秒 stale-lease sweeper 自动恢复。外部副作用按 at-least-once 设计，attempt 可见。</p>
+          <div class="tags"><span class="tag">BullMQ</span><span class="tag">lease + heartbeat</span><span class="tag">recovery</span></div>
+        </article>
+        <article class="card pink reveal">
+          <span class="num">06</span>
+          <div class="ico"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14v2"/></svg></div>
+          <h3 data-i18n="cap6.t">安全与共享契约</h3>
+          <p data-i18n="cap6.d">Argon2id、refresh cookie 轮换、AES-256-GCM 模型密钥、SSRF 防护、Redis 限流。前端/后端/测试共用一份 Zod 图与事件契约。</p>
+          <div class="tags"><span class="tag">Argon2id</span><span class="tag">AES-GCM</span><span class="tag">Zod contract</span></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow" data-i18n="arch.eyebrow">02 · ARCHITECTURE 系统架构</div>
+        <h2 data-i18n="arch.title">谁在执行，谁在记录</h2>
+        <p data-i18n="arch.lead">HTTP 边界、领域模块、异步 worker 与数据层各自负责一件事；Postgres 是唯一真相，Redis 只做调度与短期状态。</p>
+      </div>
+      <div class="arch-panel reveal">
+        <button type="button" class="zoomable" data-full="assets/architecture.svg" aria-label="放大架构图">
+          <img src="assets/architecture.svg" width="2400" height="1500" alt="FlowGate 系统架构：浏览器 SPA、React 前端、NestJS API、五个领域模块、BullMQ worker、PostgreSQL journal、Redis 与外部模型/HTTP 依赖">
+          <span class="zoomhint" data-i18n="arch.zoom">点击放大</span>
+        </button>
+      </div>
+      <div class="arch-notes reveal">
+        <div><b data-i18n="arch.note1.t">前端 · React 18 + Vite 6</b><span data-i18n="arch.note1.d">React Flow 画布、Zustand 编辑器状态、TanStack Query 服务端数据；SSE 读 journal，回放与实时共用 foldRun。</span></div>
+        <div><b data-i18n="arch.note2.t">运行时 · NestJS + BullMQ</b><span data-i18n="arch.note2.d">/v1 REST + SSE，JWT 与限流在入口；worker 消费 run.execute，租约、心跳、重试、取消与 sweeper 都在这里。</span></div>
+        <div><b data-i18n="arch.note3.t">数据 · PostgreSQL + Redis</b><span data-i18n="arch.note3.d">12 张表，run_events 为 append-only 真相，run_steps 为投影，revisions 存 JSONB + 哈希；Redis 承担队列、租约与限流。</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="demo">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow" data-i18n="demo.eyebrow">03 · WALKTHROUGH 产品演示</div>
+        <h2 data-i18n="demo.title">两分钟走完一次可回放的运行</h2>
+        <p data-i18n="demo.lead">登录、打开线索分级管道、运行一次、取消并恢复、拖动回放、从成功步骤分叉——全部来自真实运行。</p>
+      </div>
+      <div class="video-shell reveal">
+        <video id="player" controls preload="metadata" poster="assets/poster.png" playsinline>
+          <source src="assets/demo.mp4" type="video/mp4">
+          <track kind="subtitles" src="assets/demo.vtt" srclang="zh" label="中文" default>
+        </video>
+      </div>
+      <div class="chapters reveal" id="chapters">
+        <button class="chap active" type="button" data-t="0"><b>0:00</b><span data-i18n="chap1">登录与工作区</span></button>
+        <button class="chap" type="button" data-t="22"><b>0:22</b><span data-i18n="chap2">打开管道</span></button>
+        <button class="chap" type="button" data-t="44"><b>0:44</b><span data-i18n="chap3">节点配置</span></button>
+        <button class="chap" type="button" data-t="54"><b>0:54</b><span data-i18n="chap4">发起运行</span></button>
+        <button class="chap" type="button" data-t="62"><b>1:02</b><span data-i18n="chap5">取消与恢复</span></button>
+        <button class="chap" type="button" data-t="86"><b>1:26</b><span data-i18n="chap6">回放</span></button>
+        <button class="chap" type="button" data-t="100"><b>1:40</b><span data-i18n="chap7">从步骤分叉</span></button>
+        <button class="chap" type="button" data-t="108"><b>1:48</b><span data-i18n="chap8">完成</span></button>
+      </div>
+      <p class="video-note" data-i18n-html="demo.note">展示页已通过 GitHub Pages 在线发布；交互式应用不托管，录屏是完整演示。录屏使用本地演示数据与 <b>LLM_MOCK</b>，未调用真实模型 API。也可以 <a href="assets/demo.mp4" target="_blank" rel="noopener">直接打开视频文件</a>。</p>
+    </div>
+  </section>
+
+  <section id="screens">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="eyebrow" data-i18n="shots.eyebrow">04 · SCREENS 界面</div>
+        <h2 data-i18n="shots.title">真实界面，不是概念稿</h2>
+        <p data-i18n="shots.lead">以下截图均来自本地运行的 FlowGate 实例，使用演示工作区与演示数据。</p>
+      </div>
+      <div class="gallery">
+        <figure class="reveal"><button class="zoomable" data-full="assets/login.png" type="button" aria-label="放大登录页截图"><img src="assets/login.png" alt="FlowGate 登录页：深石墨与琥珀主题，演示账号提示" loading="lazy"></button><figcaption><b data-i18n="shots.1t">登录</b><span data-i18n="shots.1d">demo 账号 · 双栏品牌页</span></figcaption></figure>
+        <figure class="reveal"><button class="zoomable" data-full="assets/workspace.png" type="button" aria-label="放大工作区截图"><img src="assets/workspace.png" alt="FlowGate 工作区：示例项目卡片与统计" loading="lazy"></button><figcaption><b data-i18n="shots.2t">工作区</b><span data-i18n="shots.2d">项目 · 管道 · 角色</span></figcaption></figure>
+        <figure class="reveal"><button class="zoomable" data-full="assets/editor.png" type="button" aria-label="放大编辑器截图"><img src="assets/editor.png" alt="FlowGate 编辑器：6 节点管道和提示词配置面板" loading="lazy"></button><figcaption><b data-i18n="shots.3t">编辑器</b><span data-i18n="shots.3d">6 步骤 · descriptor 配置</span></figcaption></figure>
+        <figure class="reveal"><button class="zoomable" data-full="assets/run.png" type="button" aria-label="放大运行带截图"><img src="assets/run.png" alt="FlowGate 运行带：成功步骤、事件流与运行输出" loading="lazy"></button><figcaption><b data-i18n="shots.4t">运行带</b><span data-i18n="shots.4d">16 事件 · 输出 · SSE</span></figcaption></figure>
+        <figure class="reveal"><button class="zoomable" data-full="assets/replay.png" type="button" aria-label="放大回放截图"><img src="assets/replay.png" alt="FlowGate 回放：滑杆停在 8 号事件，节点回到运行中状态" loading="lazy"></button><figcaption><b data-i18n="shots.5t">回放</b><span data-i18n="shots.5d">任意 seq · foldRun</span></figcaption></figure>
+        <figure class="reveal"><button class="zoomable" data-full="assets/fork.png" type="button" aria-label="放大分叉截图"><img src="assets/fork.png" alt="FlowGate 分叉：从同步 CRM 步骤创建的子运行，显示分叉自父运行" loading="lazy"></button><figcaption><b data-i18n="shots.6t">分叉</b><span data-i18n="shots.6d">parentSeq · lineage</span></figcaption></figure>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot-grid">
+    <div>
+      <div class="brand" style="font-size:15px"><span class="mark" style="width:28px;height:28px;border-radius:7px" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 18V7l7 5.5L19 7v11" stroke="#f59e0b" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg></span>FlowGate</div>
+      <p data-i18n="footer.tagline">事件溯源的 AI 管道编排台 · React 18 / NestJS 10 / PostgreSQL 16 / Redis 7 / BullMQ</p>
+      <p data-i18n="footer.license">个人作品集，仅用于作品展示，非商业用途。独立实现；参考项目已授权参考。</p>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/nick456-jpg/flowgate" target="_blank" rel="noopener" data-i18n="footer.source">源代码</a>
+      <a href="#architecture" data-i18n="footer.arch">架构图</a>
+      <a href="#demo" data-i18n="footer.video">演示视频</a>
+      <a href="https://github.com/nick456-jpg/flowgate/blob/main/docs/originality.md" target="_blank" rel="noopener" data-i18n="footer.originality">原创性说明</a>
+    </div>
+  </div>
+</footer>
+
+<div class="lb" id="lightbox" role="dialog" aria-modal="true" aria-label="图片预览">
+  <button class="lb-close" id="lbClose" type="button" aria-label="关闭">×</button>
+  <img id="lbImg" src="" alt="">
+</div>
+
+<script>
+  const I18N = {
+    en: {
+      "nav.overview": "Overview",
+      "nav.arch": "Architecture",
+      "nav.demo": "Demo",
+      "nav.shots": "Screens",
+      "nav.watch": "Watch demo",
+      "hero.eyebrow": "EVENT-SOURCED · AI PIPELINE STUDIO",
+      "hero.title": "Turn one AI run into<br><span class='grad'>a replayable event stream</span>",
+      "hero.lead": "FlowGate separates a pipeline into three layers: an editable pipeline, an immutable revision, and an append-only journal. Pause a run, resume it, or fork from any successful step.",
+      "hero.cta.video": "Watch the 2-min demo",
+      "hero.cta.gh": "Source on GitHub",
+      "hero.note.b": "v1 · core orchestration loop",
+      "hero.note.s": "LLM_MOCK runs offline · no model key required",
+      "hero.caption.b": "Lead qualifier · 6 steps",
+      "hero.caption.s": "Published v2 · React Flow canvas",
+      "stats.steps": "Step types",
+      "stats.tables": "Database tables",
+      "stats.events": "Event types",
+      "stats.tests": "Unit tests",
+      "caps.eyebrow": "01 · CAPABILITIES",
+      "caps.title": "From canvas to event stream, one loop",
+      "caps.lead": "FlowGate v1 is not a feature pile. It makes compose → run → audit → replay one verifiable loop.",
+      "cap1.t": "Event-sourced runs",
+      "cap1.d": "Every run writes an append-only Run / Step / JournalEvent journal. seq is allocated inside a transaction; run_events is the truth and run_steps is a rebuildable projection.",
+      "cap2.t": "Replay · resume · fork",
+      "cap2.d": "Scrub to any seq to rebuild node state, resume after a failure or cancel, or fork a child from any successful step without copying history.",
+      "cap3.t": "Visual composition",
+      "cap3.d": "A React Flow 12 canvas with six typed steps: start, prompt, transform, branch, fetch and respond. Descriptor-driven forms and If-Match draft concurrency.",
+      "cap4.t": "SSE event stream",
+      "cap4.d": "Events are read from Postgres and streamed by seq over SSE, with cursor / Last-Event-ID resume, a 15s keepalive and close-on-terminal.",
+      "cap5.t": "Reliable execution",
+      "cap5.d": "BullMQ dispatch plus Redis lease and heartbeat; node retries, cancellation and a 15s stale-lease sweeper. External side effects are at-least-once and attempts stay visible.",
+      "cap6.t": "Security & shared contract",
+      "cap6.d": "Argon2id, rotating refresh cookies, AES-256-GCM model secrets, SSRF protection and Redis rate limits. One Zod graph/event contract for web, API and tests.",
+      "arch.eyebrow": "02 · ARCHITECTURE",
+      "arch.title": "Who executes, who records",
+      "arch.lead": "The HTTP edge, domain modules, async worker and data layer each own one job. Postgres is the only truth; Redis holds dispatch and short-lived state.",
+      "arch.zoom": "Click to enlarge",
+      "arch.note1.t": "Frontend · React 18 + Vite 6",
+      "arch.note1.d": "React Flow canvas, Zustand editor state, TanStack Query for server data; SSE reads the journal and replay shares foldRun with live runs.",
+      "arch.note2.t": "Runtime · NestJS + BullMQ",
+      "arch.note2.d": "/v1 REST + SSE with JWT and rate limits at the edge; the worker consumes run.execute and owns leases, retries, cancel and the recovery sweeper.",
+      "arch.note3.t": "Data · PostgreSQL + Redis",
+      "arch.note3.d": "12 tables; append-only run_events, rebuildable run_steps, JSONB revisions with hashes; Redis owns the queue, lease and rate limit.",
+      "demo.eyebrow": "03 · WALKTHROUGH",
+      "demo.title": "A replayable run in two minutes",
+      "demo.lead": "Sign in, open the lead qualifier, run it, cancel and resume, scrub the replay, then fork from a successful step — all from a real run.",
+      "demo.note": "This showcase page is published on GitHub Pages. The interactive app itself is not hosted; the recording is the full walkthrough. Recorded with local demo data and the <b>LLM_MOCK</b> model; no real model API was called. You can also <a href='assets/demo.mp4' target='_blank' rel='noopener'>open the video file</a>.",
+      "chap1": "Login & workspace",
+      "chap2": "Open the pipeline",
+      "chap3": "Node config",
+      "chap4": "Start a run",
+      "chap5": "Cancel & resume",
+      "chap6": "Replay",
+      "chap7": "Fork from a step",
+      "chap8": "Done",
+      "chap7": "Event log",
+      "shots.eyebrow": "04 · SCREENS",
+      "shots.title": "Real UI, not concept art",
+      "shots.lead": "Every screenshot comes from a locally running FlowGate instance with the seeded demo workspace.",
+      "shots.1t": "Login",
+      "shots.1d": "demo account · split brand page",
+      "shots.2t": "Workspace",
+      "shots.2d": "projects · pipelines · roles",
+      "shots.3t": "Editor",
+      "shots.3d": "6 steps · descriptor config",
+      "shots.4t": "Run dock",
+      "shots.4d": "16 events · output · SSE",
+      "shots.5t": "Replay",
+      "shots.5d": "any seq · foldRun",
+      "shots.6t": "Fork",
+      "shots.6d": "parentSeq · lineage",
+      "footer.tagline": "Event-sourced AI pipeline studio · React 18 / NestJS 10 / PostgreSQL 16 / Redis 7 / BullMQ",
+      "footer.license": "Personal portfolio piece, not for commercial use. Independent implementation; reference used with permission.",
+      "footer.source": "Source",
+      "footer.arch": "Architecture",
+      "footer.video": "Demo video",
+      "footer.originality": "Originality"
+    }
+  };
+
+  const originals = new Map();
+  document.querySelectorAll("[data-i18n],[data-i18n-html]").forEach((el) => {
+    originals.set(el, el.hasAttribute("data-i18n-html") ? el.innerHTML : el.textContent);
+  });
+
+  let lang = localStorage.getItem("flowgate-showcase-lang") || "zh";
+  const langBtn = document.getElementById("langBtn");
+
+  function applyLang(next) {
+    lang = next;
+    document.documentElement.lang = next === "zh" ? "zh-CN" : "en";
+    document.querySelectorAll("[data-i18n]").forEach((el) => {
+      const key = el.getAttribute("data-i18n");
+      if (next === "zh") el.textContent = originals.get(el);
+      else if (I18N.en[key]) el.textContent = I18N.en[key];
+    });
+    document.querySelectorAll("[data-i18n-html]").forEach((el) => {
+      const key = el.getAttribute("data-i18n-html");
+      if (next === "zh") el.innerHTML = originals.get(el);
+      else if (I18N.en[key]) el.innerHTML = I18N.en[key];
+    });
+    langBtn.textContent = next === "zh" ? "EN" : "中文";
+    document.title = next === "zh" ? "FlowGate · 可回放的 AI 管道编排台" : "FlowGate · Replayable AI Pipeline Studio";
+    localStorage.setItem("flowgate-showcase-lang", next);
+  }
+  langBtn.addEventListener("click", () => applyLang(lang === "zh" ? "en" : "zh"));
+  applyLang(lang);
+
+  const lb = document.getElementById("lightbox");
+  const lbImg = document.getElementById("lbImg");
+  document.querySelectorAll(".zoomable").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      lbImg.src = btn.getAttribute("data-full");
+      lbImg.alt = btn.querySelector("img")?.alt || "";
+      lb.classList.add("open");
+      document.body.style.overflow = "hidden";
+    });
+  });
+  const closeLb = () => {
+    lb.classList.remove("open");
+    lbImg.src = "";
+    document.body.style.overflow = "";
+  };
+  document.getElementById("lbClose").addEventListener("click", closeLb);
+  lb.addEventListener("click", (event) => { if (event.target === lb) closeLb(); });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && lb.classList.contains("open")) closeLb();
+  });
+
+  const player = document.getElementById("player");
+  const chapters = [...document.querySelectorAll(".chap")];
+  chapters.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      player.currentTime = Number(btn.dataset.t);
+      player.play().catch(() => {});
+      player.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  });
+  player.addEventListener("timeupdate", () => {
+    const time = player.currentTime;
+    let active = 0;
+    chapters.forEach((btn, index) => { if (time >= Number(btn.dataset.t)) active = index; });
+    chapters.forEach((btn, index) => btn.classList.toggle("active", index === active));
+  });
+
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add("in");
+        io.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.12 });
+  document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+</script>
+</body>
+</html>

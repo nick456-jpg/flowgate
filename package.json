@@ -1,0 +1,38 @@
+{
+  "name": "flowgate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FlowGate - a replayable AI pipeline studio",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,worker,web -c blue,magenta,green \"pnpm --filter @flowgate/api dev\" \"pnpm --filter @flowgate/api dev:worker\" \"pnpm --filter @flowgate/web dev\"",
+    "build": "pnpm --filter @flowgate/schema build && pnpm --filter @flowgate/api build && pnpm --filter @flowgate/web build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @flowgate/schema test && pnpm --filter @flowgate/api test",
+    "db:generate": "pnpm --filter @flowgate/api prisma:generate",
+    "db:migrate": "pnpm --filter @flowgate/api prisma:migrate",
+    "db:deploy": "pnpm --filter @flowgate/api prisma:deploy",
+    "db:seed": "pnpm --filter @flowgate/schema build && pnpm --filter @flowgate/api seed",
+    "db:reset": "pnpm --filter @flowgate/api prisma:reset",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "infra:full": "docker compose -f infra/docker-compose.yml --profile full up -d --build",
+    "originality:check": "node scripts/similarity-check.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@node-rs/argon2",
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma"
+    ]
+  },
+  "packageManager": "pnpm@10.34.9"
+}

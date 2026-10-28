@@ -1,0 +1,260 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MemberRole {
+  owner
+  editor
+  viewer
+}
+
+enum RevisionKind {
+  manual
+  auto
+}
+
+enum RunStatus {
+  queued
+  running
+  succeeded
+  failed
+  cancelled
+}
+
+enum StepStatus {
+  pending
+  running
+  succeeded
+  failed
+  skipped
+}
+
+enum RunTrigger {
+  manual
+  fork
+  api
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique @db.VarChar(254)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  displayName  String   @map("display_name") @db.VarChar(40)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  sessions    Session[]
+  memberships WorkspaceMember[]
+  workspaces  Workspace[]       @relation("WorkspaceCreator")
+  revisions   Revision[]
+  runs        Run[]             @relation("RunCreator")
+
+  @@map("users")
+}
+
+model Session {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  refreshHash String    @unique @map("refresh_hash") @db.VarChar(128)
+  familyId    String    @map("family_id") @db.Uuid
+  expiresAt   DateTime  @map("expires_at")
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("sessions")
+}
+
+model Workspace {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(40)
+  slug      String   @unique @db.VarChar(60)
+  createdBy String   @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  creator        User             @relation("WorkspaceCreator", fields: [createdBy], references: [id])
+  members        WorkspaceMember[]
+  projects       Project[]
+  llmConnections LlmConnection[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  workspaceId String     @map("workspace_id") @db.Uuid
+  userId      String     @map("user_id") @db.Uuid
+  role        MemberRole @default(editor)
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model Project {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  name        String   @db.VarChar(40)
+  slug        String   @db.VarChar(60)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pipelines Pipeline[]
+
+  @@unique([workspaceId, slug])
+  @@map("projects")
+}
+
+model Pipeline {
+  id             String    @id @default(uuid()) @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
+  name           String    @db.VarChar(40)
+  slug           String    @db.VarChar(60)
+  headRevisionId String?   @unique @map("head_revision_id") @db.Uuid
+  archivedAt     DateTime? @map("archived_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  project      Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  headRevision Revision?      @relation("PipelineHead", fields: [headRevisionId], references: [id], onDelete: SetNull)
+  revisions    Revision[]     @relation("PipelineRevisions")
+  draft        PipelineDraft?
+  runs         Run[]
+
+  @@unique([projectId, slug])
+  @@map("pipelines")
+}
+
+model PipelineDraft {
+  pipelineId    String   @id @map("pipeline_id") @db.Uuid
+  graph         Json
+  schemaVersion Int      @default(1) @map("schema_version")
+  rowVersion    Int      @default(1) @map("row_version")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  pipeline Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@map("pipeline_drafts")
+}
+
+model Revision {
+  id            String       @id @default(uuid()) @db.Uuid
+  pipelineId    String       @map("pipeline_id") @db.Uuid
+  number        Int
+  graph         Json
+  graphHash     String       @map("graph_hash") @db.VarChar(64)
+  schemaVersion Int          @default(1) @map("schema_version")
+  kind          RevisionKind @default(manual)
+  note          String?      @db.VarChar(200)
+  createdBy     String       @map("created_by") @db.Uuid
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  pipeline       Pipeline  @relation("PipelineRevisions", fields: [pipelineId], references: [id], onDelete: Cascade)
+  headFor        Pipeline? @relation("PipelineHead")
+  createdByUser  User      @relation(fields: [createdBy], references: [id])
+  runs           Run[]
+
+  @@unique([pipelineId, number])
+  @@index([pipelineId, createdAt])
+  @@map("revisions")
+}
+
+model Run {
+  id                String        @id @default(uuid()) @db.Uuid
+  pipelineId        String        @map("pipeline_id") @db.Uuid
+  revisionId        String        @map("revision_id") @db.Uuid
+  status            RunStatus     @default(queued)
+  trigger           RunTrigger    @default(manual)
+  inputs            Json
+  output            Json?
+  error             Json?
+  idempotencyKey    String        @map("idempotency_key") @db.VarChar(120)
+  requestHash       String        @map("request_hash") @db.VarChar(64)
+  parentRunId       String?       @map("parent_run_id") @db.Uuid
+  parentSeq         Int?          @map("parent_seq")
+  leaseOwner        String?       @map("lease_owner") @db.VarChar(120)
+  leaseExpiresAt    DateTime?     @map("lease_expires_at")
+  eventSeq          Int           @default(0) @map("event_seq")
+  cancelRequestedAt DateTime?     @map("cancel_requested_at")
+  createdBy         String        @map("created_by") @db.Uuid
+  createdAt         DateTime      @default(now()) @map("created_at")
+  startedAt         DateTime?     @map("started_at")
+  finishedAt        DateTime?     @map("finished_at")
+
+  pipeline      Pipeline   @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  revision      Revision   @relation(fields: [revisionId], references: [id])
+  createdByUser User       @relation("RunCreator", fields: [createdBy], references: [id])
+  parent        Run?       @relation("RunFork", fields: [parentRunId], references: [id], onDelete: SetNull)
+  children      Run[]      @relation("RunFork")
+  steps         RunStep[]
+  events        RunEvent[]
+
+  @@unique([pipelineId, idempotencyKey])
+  @@index([pipelineId, createdAt])
+  @@index([status, leaseExpiresAt])
+  @@index([parentRunId])
+  @@map("runs")
+}
+
+model RunStep {
+  id         String     @id @default(uuid()) @db.Uuid
+  runId      String     @map("run_id") @db.Uuid
+  nodeKey    String     @map("node_key") @db.VarChar(32)
+  status     StepStatus @default(pending)
+  attempt    Int        @default(0)
+  output     Json?
+  error      Json?
+  startedAt  DateTime?  @map("started_at")
+  finishedAt DateTime?  @map("finished_at")
+  durationMs Int?       @map("duration_ms")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, nodeKey])
+  @@map("run_steps")
+}
+
+model RunEvent {
+  id            Int      @id @default(autoincrement())
+  runId         String   @map("run_id") @db.Uuid
+  seq           Int
+  type          String   @db.VarChar(40)
+  payload       Json
+  schemaVersion Int      @default(1) @map("schema_version")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, seq])
+  @@map("run_events")
+}
+
+model LlmConnection {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  provider    String   @db.VarChar(40)
+  baseUrl     String   @map("base_url") @db.VarChar(500)
+  model       String   @db.VarChar(120)
+  secretCt    Bytes    @map("secret_ct")
+  secretIv    Bytes    @map("secret_iv")
+  keyVersion  Int      @default(1) @map("key_version")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, provider])
+  @@map("llm_connections")
+}

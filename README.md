@@ -4,7 +4,7 @@
 
 [![FlowGate 2 分钟演示](showcase/assets/poster.png)](showcase/assets/demo.mp4)
 
-[GitHub 仓库](https://github.com/nick456-jpg/flowgate) · [2 分钟演示](showcase/assets/demo.mp4) · [展示页说明](showcase/README.md)
+[在线展示页](https://nick456-jpg.github.io/flowgate/) · [GitHub 仓库](https://github.com/nick456-jpg/flowgate) · [2 分钟演示](showcase/assets/demo.mp4) · [展示页说明](showcase/README.md)
 
 FlowGate 是一个从零实现的 AI 管道编排平台：把一条业务链路拆成带类型的步骤，在画布上编排，由后台 worker 执行，并让每一次运行都留下可回放、可恢复、可分支的事件日志。
 
@@ -83,10 +83,11 @@ Web 在 <http://localhost:8080>，API 直连 <http://localhost:3001>。API 容�
 
 ## 展示页与录屏
 
+- 在线展示页：<https://nick456-jpg.github.io/flowgate/>（GitHub Pages）
 - 本地展示页：`node showcase/server.mjs` → <http://localhost:4173>
 - 2 分钟演示：`showcase/assets/demo.mp4`（1:55，1920×1080，静音，中文 VTT，8 个章节）
 - 架构图：`showcase/assets/architecture.svg`；六张真实截图：`showcase/assets/login.png`、`workspace.png`、`editor.png`、`run.png`、`replay.png`、`fork.png`
-- 展示页与录屏都来自本地实例与 `LLM_MOCK` 演示数据，不调用真实模型 API；本项目不提供在线 demo，也不做页面托管，录屏就是演示。
+- 展示页与录屏都来自本地实例与 `LLM_MOCK` 演示数据，不调用真实模型 API；展示页已在线发布，交互式应用需要本地运行，录屏就是完整演示。
 - 详细说明与章节表见 [showcase/README.md](showcase/README.md)。
 
 ## 目录
